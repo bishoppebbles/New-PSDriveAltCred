@@ -7,6 +7,10 @@
     The full Universal Naming Convention (UNC) path of the target share to map.
 .PARAMETER DriveLetter
     Optionally specific the mapped drive letter (default: Z).
+.PARAMETER RegisterScheduledTask
+    An option to register the drive mapping as a scheduled task.  It is automatically deleted after 14 days.  Due to the use of smartcard certificates, the mapping does not persist between user sessions and needs to manually reconnect each time.  If this is successfully run once, any subsequent uses of the switch are irrelevant until the scheduled task is deleted.
+.PARAMETER UnregisterScheduledTask
+    If previously registered, delete the scheduled task created by this code.  PowerShell must be run with elevated privileges.
 .EXAMPLE
     .\New-PSDriveAltCred.ps1 '\\server\myshare\'
 
@@ -16,18 +20,25 @@
 
     Map a persistent share located on <workstation.local.domain> to the built-in C$ share as the X drive.
 .NOTES
-    Version 0.11 - 12 November 2025
+    Version 0.12 - 12 November 2025
     by Sam Pursglove
 
     Get-SmartCardCred PowerShell function is written by Joshua Chase with code adopted from C# by Matthew Bongiovi.  It is provided under the MIT license.
 #>
 
+[CmdletBinding(DefaultParameterSetName='Main')]
 param (
-    [Parameter(Position=0, Mandatory, HelpMessage='The UNC path of the network share')]
+    [Parameter(ParameterSetName='Main', Position=0, Mandatory, HelpMessage='The UNC path of the network share')]
     [string]$UNCSharePath,
 
-    [Parameter(Mandatory=$false, HelpMessage='Share drive letter mapping (default: Z)')]
-    [string]$DriveLetter = 'Z'
+    [Parameter(ParameterSetName='Main', HelpMessage='Share drive letter mapping (default: Z)')]
+    [string]$DriveLetter = 'Z',
+
+    [Parameter(ParameterSetName='Main', HelpMessage='Register the drive mapping as a scheduled task to reconnect between logon sessions.')]
+    [switch]$RegisterScheduledTask,
+
+    [Parameter(ParameterSetName='Unregister', Mandatory, HelpMessage='If it exists, unregister the scheduled task created by this code.')]
+    [switch]$UnregisterScheduledTask
 )
 
 
@@ -165,12 +176,27 @@ namespace SmartCardLogon{
     $Cert = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection($ValidCerts, 'Personal Certificate Store', 'Choose a certificate', 0)
 
     if ($Cert) {
-        $Pin = Read-Host "Enter your PIN: " -AsSecureString
+        $Pin = Read-Host "Enter your certificate PIN: " -AsSecureString
     } else {
         exit
     }
 
     [SmartCardLogon.Certificate]::MarshalFlow($Cert.Thumbprint, $Pin)
+}
+
+$TaskName = 'PersistentShareConnection'
+
+# option to unregister the previously registered scheduled task
+if($UnregisterScheduledTask) {
+
+    if(Get-ScheduledTask -TaskPath '\' -TaskName $TaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskPath '\' -TaskName $TaskName -Confirm:$false
+        Write-Output "The \$TaskName scheduled task was unregistered."
+    } else {
+        Write-Output "The \$TaskName scheduled task does not exist."
+    }
+    
+    exit
 }
 
 # Ensure a duplicate drive letter does not exist
@@ -187,4 +213,36 @@ try {
     New-PSDrive -Name $DriveLetter -Root $UNCSharePath -Persist -PSProvider "FileSystem" -Credential (Get-SmartCardCred) -Scope Global -ErrorAction Stop
 } catch [System.ComponentModel.Win32Exception] {
     Write-Output "The credentials are not valid or the share path does not exist or is no longer available."
+    exit
+}
+
+# register the network share as a scheduled task to persist between sesson logons
+if ($RegisterScheduledTask) {
+
+    # check if the scheduled task is already registered
+    if(-not (Get-ScheduledTask -TaskPath \ -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+
+        $User = "$env:USERDOMAIN\$env:USERNAME"
+        $Argument = "$((Get-Location).Path)\New-PSDriveAltCred.ps1 -UNCSharePath '$UNCSharePath' -DriveLetter $DriveLetter"
+        $TimeSpan = (New-TimeSpan -Minutes 5).ToString()
+
+        
+        $Action = New-ScheduledTaskAction -Execute powershell.exe -Argument $Argument
+        $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
+        #$Trigger.EndBoundary = (Get-Date).AddDays(14)
+        $Principal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive
+        $Settings = New-ScheduledTaskSettingsSet -Compatibility Win8 -DeleteExpiredTaskAfter $TimeSpan
+
+        $params = @{
+            TaskName = $TaskName
+            TaskPath = '\'
+            Description = 'Reconnect a network share using alternate smart card credentials. Deleted after 14 days.'
+            Action = $Action
+            Trigger = $Trigger
+            Principal = $Principal
+            #Settings = $Settings
+        }
+    
+        Register-ScheduledTask @params
+    }
 }
