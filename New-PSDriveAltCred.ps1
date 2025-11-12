@@ -16,7 +16,7 @@
 
     Map a persistent share located on <workstation.local.domain> to the built-in C$ share as the X drive.
 .NOTES
-    Version 0.1 - 12 November 2025
+    Version 0.11 - 12 November 2025
     by Sam Pursglove
 
     Get-SmartCardCred PowerShell function is written by Joshua Chase with code adopted from C# by Matthew Bongiovi.  It is provided under the MIT license.
@@ -159,6 +159,7 @@ namespace SmartCardLogon{
 "@
 
     Add-Type -TypeDefinition $SmartCardCode -Language CSharp
+    Add-Type -AssemblyName System.Security
 
     $ValidCerts = [System.Security.Cryptography.X509Certificates.X509Certificate2[]](Get-ChildItem 'Cert:\CurrentUser\My')
     $Cert = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection($ValidCerts, 'Personal Certificate Store', 'Choose a certificate', 0)
