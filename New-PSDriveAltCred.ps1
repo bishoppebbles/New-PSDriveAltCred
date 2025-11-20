@@ -20,7 +20,8 @@
 
     Map a persistent share located on <workstation.local.domain> to the built-in C$ share as the X drive.
 .NOTES
-    Version 0.12 - 12 November 2025
+    Version 0.13
+    Last modified: 20 November 2025
     by Sam Pursglove
 
     Get-SmartCardCred PowerShell function is written by Joshua Chase with code adopted from C# by Matthew Bongiovi.  It is provided under the MIT license.
@@ -224,14 +225,12 @@ if ($RegisterScheduledTask) {
 
         $User = "$env:USERDOMAIN\$env:USERNAME"
         $Argument = "$((Get-Location).Path)\New-PSDriveAltCred.ps1 -UNCSharePath '$UNCSharePath' -DriveLetter $DriveLetter"
-        $TimeSpan = (New-TimeSpan -Minutes 5).ToString()
-
         
         $Action = New-ScheduledTaskAction -Execute powershell.exe -Argument $Argument
         $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
-        #$Trigger.EndBoundary = (Get-Date).AddDays(14)
+        $Trigger.EndBoundary = (Get-Date).AddHours(12).ToString("s")
         $Principal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive
-        $Settings = New-ScheduledTaskSettingsSet -Compatibility Win8 -DeleteExpiredTaskAfter $TimeSpan
+        $Settings = New-ScheduledTaskSettingsSet -Compatibility Win8 -DeleteExpiredTaskAfter(New-TimeSpan -Minutes 1)
 
         $params = @{
             TaskName = $TaskName
