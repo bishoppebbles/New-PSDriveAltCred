@@ -9,6 +9,8 @@
     Optionally specific the mapped drive letter (default: Z).
 .PARAMETER RegisterScheduledTask
     An option to register the drive mapping as a scheduled task.  It is automatically deleted after 14 days.  Due to the use of smartcard certificates, the mapping does not persist between user sessions and needs to manually reconnect each time.  If this is successfully run once, any subsequent uses of the switch are irrelevant until the scheduled task is deleted.
+.PARAMETER ActiveDays
+    Number of days for the scheduled task to persist until it is unregistered (default: 14, ranage: 1 - 21).
 .PARAMETER UnregisterScheduledTask
     If previously registered, delete the scheduled task created by this code.  PowerShell must be run with elevated privileges.
 .EXAMPLE
@@ -20,8 +22,8 @@
 
     Map a persistent share located on <workstation.local.domain> to the built-in C$ share as the X drive.
 .NOTES
-    Version 0.13
-    Last modified: 20 November 2025
+    Version 0.14
+    Last modified: 21 November 2025
     by Sam Pursglove
 
     Get-SmartCardCred PowerShell function is written by Joshua Chase with code adopted from C# by Matthew Bongiovi.  It is provided under the MIT license.
@@ -30,13 +32,19 @@
 [CmdletBinding(DefaultParameterSetName='Main')]
 param (
     [Parameter(ParameterSetName='Main', Position=0, Mandatory, HelpMessage='The UNC path of the network share')]
+    [Parameter(ParameterSetName='Register', Position=0, Mandatory, HelpMessage='The UNC path of the network share')]
     [string]$UNCSharePath,
 
     [Parameter(ParameterSetName='Main', HelpMessage='Share drive letter mapping (default: Z)')]
+    [Parameter(ParameterSetName='Register', HelpMessage='Share drive letter mapping (default: Z)')]
     [string]$DriveLetter = 'Z',
 
-    [Parameter(ParameterSetName='Main', HelpMessage='Register the drive mapping as a scheduled task to reconnect between logon sessions.')]
+    [Parameter(ParameterSetName='Register', HelpMessage='Register the drive mapping as a scheduled task to reconnect between logon sessions.')]
     [switch]$RegisterScheduledTask,
+
+    [Parameter(ParameterSetName='Register', HelpMessage='Number of days for the scheduled task to persist (default: 14, range: 1 - 21)')]
+    [ValidateSet(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21)]
+    [int]$ActiveDays = 14,
 
     [Parameter(ParameterSetName='Unregister', Mandatory, HelpMessage='If it exists, unregister the scheduled task created by this code.')]
     [switch]$UnregisterScheduledTask
@@ -228,9 +236,9 @@ if ($RegisterScheduledTask) {
         
         $Action = New-ScheduledTaskAction -Execute powershell.exe -Argument $Argument
         $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $User
-        $Trigger.EndBoundary = (Get-Date).AddHours(12).ToString("s")
+        $Trigger.EndBoundary = (Get-Date).AddDays([int]$ActiveDays).ToString("s")
         $Principal = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive
-        $Settings = New-ScheduledTaskSettingsSet -Compatibility Win8 -DeleteExpiredTaskAfter(New-TimeSpan -Minutes 1)
+        $Settings = New-ScheduledTaskSettingsSet -DeleteExpiredTaskAfter(New-TimeSpan -Minutes 1)
 
         $params = @{
             TaskName = $TaskName
@@ -239,7 +247,7 @@ if ($RegisterScheduledTask) {
             Action = $Action
             Trigger = $Trigger
             Principal = $Principal
-            #Settings = $Settings
+            Settings = $Settings
         }
     
         Register-ScheduledTask @params
